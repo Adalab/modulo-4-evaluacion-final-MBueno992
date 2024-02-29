@@ -26,13 +26,14 @@ server.listen(serverPort, () => {
 //pintar listado
 server.get('/libros', async (req, res) => {
   const connect = await getConnection();
-  const librosSQL = 'SELECT libros.*, autores.* FROM libros, autores';
+  const librosSQL = 'SELECT * FROM libros';
   const [result] = await connect.query(librosSQL);
+  const numOfElements = result.length;
   connect.end();
-  res.json({ success: true, results: result });
+  res.json({ success: true, info: numOfElements, results: result });
 });
 
-//filtar por genero o autor
+//filtrar por genero
 server.get('/libros/:genero', async (req, res) => {
   const genero = req.params.genero;
   const connect = await getConnection();
@@ -47,25 +48,72 @@ server.get('/libros/:genero', async (req, res) => {
   res.json({ success: true, result: resultGenero });
 });
 
-//insertar un registro en la entidad principal
+//Filtrar por autor
+server.get('/libros/autor/:autor', async (req, res) => {
+  const autor = req.params.autor;
+  const connect = await getConnection();
+  const autorSelect = 'SELECT * FROM autores WHERE nombre LIKE ?';
+  const [resultAutor] = await connect.query(autorSelect, [`%${autor}%`]);
+  console.log(resultAutor[0].idAutor);
+  const autorId = resultAutor[0].idAutor;
+  const librosSelect = 'SELECT * FROM libros WHERE fk_autorId = ?';
+  const [resultLibros] = await connect.query(librosSelect, [autorId]);
+  if (librosSelect.length === 0) {
+    return res.json({
+      success: false,
+      message: 'No tenemos ningún libro de ese autor',
+    });
+  }
+  res.json({ success: true, result: resultLibros });
+});
+
+//insertar un libro y autor
 server.post('/addLibros', async (req, res) => {
   const connect = await getConnection();
+  const newAutor = req.body;
+  const { nombre, año_nacimiento, nacionalidad } = newAutor;
+  const searchAutor = 'SELECT * FROM autores WHERE nombre = ?';
+  const [resultAutor] = await connect.query(searchAutor, [nombre]);
+  let fkAutor;
+  if (resultAutor.length === 0) {
+    const insertAutor =
+      'INSERT INTO autores (nombre, año_nacimiento, nacionalidad) VALUES (?, ?, ?)';
+    const [autor] = await connect.query(insertAutor, [
+      nombre,
+      año_nacimiento,
+      nacionalidad,
+    ]);
+    fkAutor = autor.insertId;
+  } else {
+    fkAutor = resultAutor[0].idAutor;
+  }
+
   const newLibro = req.body;
   const { titulo, genero, año, editorial, precio } = newLibro;
-  const insertSQL =
-    'INSERT INTO libros (titulo, genero, año, editorial, precio) VALUES (?, ?, ?, ?, ?)';
-  const [result] = await connect.query(insertSQL, [
-    titulo,
-    genero,
-    año,
-    editorial,
-    precio,
-  ]);
-  connect.end();
-  res.json({
-    success: true,
-    id: result.insertId,
-  });
+  const searchLibro = 'SELECT * FROM libros WHERE titulo = ?';
+  const [resultLibro] = await connect.query(searchLibro, [titulo]);
+  if (resultLibro.length === 0) {
+    const insertLibro =
+      'INSERT INTO libros (titulo, genero, año, editorial, precio, fk_autorId) VALUES (?, ?, ?, ?, ?, ?)';
+    const [result] = await connect.query(insertLibro, [
+      titulo,
+      genero,
+      año,
+      editorial,
+      precio,
+      fkAutor,
+    ]);
+    return res.json({
+      success: true,
+      id: result.insertId,
+      message: 'Libro añadido correctamente',
+    });
+  } else {
+    return res.json({
+      success: false,
+      message: 'El libro ya se encuentra en la base de datos',
+    });
+  }
 });
 
 //Actualizar un regitro existente
